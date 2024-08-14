@@ -1,14 +1,61 @@
-from django.contrib.auth.models import User
+from .models  import *
 from rest_framework import status
 from rest_framework.decorators import api_view ,authentication_classes,permission_classes
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
-from .models import Cagnotte, Don, JustificationDon ,Donateur 
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import TokenAuthentication
 from datetime import datetime
+from django.contrib.auth import get_user_model
 
+
+
+@api_view(['POST'])
+def register(request):
+    username = request.data.get('username')
+    email = request.data.get('email')
+    password = request.data.get('password')
+
+    if not username or not email or not password:
+        return Response({'error': 'Tous les champs sont obligatoires'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if User.objects.filter(email=email).exists():
+        return Response({'error': 'Un utilisateur avec cet email existe déjà'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = User.objects.create(
+            username=username,
+            email=email,
+            password=password
+        )
+
+        return Response({'message': 'Inscription réussie'}, status=status.HTTP_201_CREATED)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+@api_view(['POST'])
+def login(request):
+    email = request.data.get('email')
+    password = request.data.get('password')
+
+    if not email or not password:
+        return Response({'error': 'L\'email et le mot de passe sont obligatoires'}, status=status.HTTP_400_BAD_REQUEST)
+
+    User = get_user_model()
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+         return Response({'error': 'Email ou mot de passe incorrect'}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+    user = authenticate(request, username=user.username, password=password)
+
+    if user:
+        token, _ = Token.objects.get_or_create(user=user)
+        return Response({'message': 'Connexion réussie', 'token': token.key}, status=status.HTTP_200_OK)
+    
+    return Response({'error': 'Email ou mot de passe incorrectes'}, status=status.HTTP_401_UNAUTHORIZED)
 
 @api_view(['POST'])
 @authentication_classes([TokenAuthentication])
@@ -36,7 +83,40 @@ def creer_cagnotte(request):
     
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
+@api_view(['GET'])
+def details_cagnotte(request, cagnotte_id):
+    try:
+        cagnotte = Cagnotte.objects.get(id=cagnotte_id)
+    except Cagnotte.DoesNotExist:
+        return Response({'error': 'Cagnotte non trouvée'}, status=status.HTTP_404_NOT_FOUND)
+
+    cagnotte_details = {
+        'intitule': cagnotte.intitule,
+        'description': cagnotte.description,
+        'objectif_montant_vise': cagnotte.objectif_montant_vise,
+        'montant_collecte': cagnotte.montant_collecte,
+        'date_debut': cagnotte.date_debut,
+        'image': cagnotte.image.url 
+    }
+
+    dons = Don.objects.filter(cagnotte=cagnotte)
+    dons_list = [
+        {
+            'montant': don.montant,
+            'nom_donateur': don.donateur.nom if don.donateur else None,
+            'prenom_donateur': don.donateur.prenom if don.donateur else None,
+            'email_donateur': don.donateur.email if don.donateur else None,
+            'date_don': don.date_don,
+        }
+        for don in dons
+    ]
+
+    return Response({
+        'cagnotte': cagnotte_details,
+        'dons': dons_list,
+    }, status=status.HTTP_200_OK)
+
 @api_view(['GET'])
 def liste_cagnottes(request):
     cagnottes = Cagnotte.objects.all()
@@ -89,26 +169,3 @@ def faire_don(request):
     cagnotte.save()
 
     return Response({'message': 'Don effectué avec succès'}, status=status.HTTP_201_CREATED)
-
-@api_view(['POST'])
-def justifier_don(request):
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    cagnotte_id = request.data.get('cagnotte_id')
-    montant_justifie = request.data.get('montant_justifie')
-    description = request.data.get('description')
-
-    try:
-        cagnotte = Cagnotte.objects.get(id=cagnotte_id)
-    except Cagnotte.DoesNotExist:
-        return Response({'error': 'Cagnotte non trouvée'}, status=status.HTTP_404_NOT_FOUND)
-
-    if montant_justifie > cagnotte.montant_actuel:
-        return Response({'error': 'Le montant justifié dépasse le montant actuel de la cagnotte'}, status=status.HTTP_400_BAD_REQUEST)
-
-    justification = JustificationDon.objects.create(cagnotte=cagnotte, montant_justifie=montant_justifie, description=description)
-    cagnotte.montant_actuel -= montant_justifie
-    cagnotte.save()
-
-    return Response({'message': 'Justification effectuée avec succès'}, status=status.HTTP_201_CREATED)
