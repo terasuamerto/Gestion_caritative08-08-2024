@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import TokenAuthentication
 from datetime import datetime
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
 
 
 
@@ -27,7 +28,7 @@ def register(request):
         user = User.objects.create(
             username=username,
             email=email,
-            password=password
+            password=make_password(password)
         )
 
         return Response({'message': 'Inscription réussie'}, status=status.HTTP_201_CREATED)
@@ -56,6 +57,16 @@ def login(request):
         return Response({'message': 'Connexion réussie', 'token': token.key}, status=status.HTTP_200_OK)
     
     return Response({'error': 'Email ou mot de passe incorrectes'}, status=status.HTTP_401_UNAUTHORIZED)
+
+@api_view(['GET'])
+#@permission_classes([IsAuthenticated])
+def get_user_info(request):
+    user = request.user
+    user_data = {
+        'username': user.username,
+        'email': user.email,
+    }
+    return Response(user_data, status=status.HTTP_200_OK)
 
 @api_view(['POST'])
 @authentication_classes([TokenAuthentication])
